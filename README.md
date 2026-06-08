@@ -1,97 +1,104 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# SMS CMMS Mobile Application
 
-# Getting Started
+A fully functional, cross-platform mobile application built using **React Native CLI (TypeScript)**. This app implements a login workflow, a centralized dashboard, and a grid-based task table system.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+---
 
-## Step 1: Start Metro
+## 📱 Features
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+1. **🔐 Authentication & Validation (`LoginScreen`)**
+   - Secure username/password credential check.
+   - Credentials supported:
+     - **Username:** `operator` | **Password:** `operator123` (logs in as Operator)
+   - *Note: Administrative access blocks have been removed to prioritize Operator access.*
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+2. **🧑‍💼 Dynamic Dashboard (`DashboardScreen`)**
+   - Greeting and title adjust dynamically based on the logged-in session details.
+   - Clean shortcuts to navigation components: **Profile** and **Tasks**.
 
+3. **📋 Grid-based Tasks List (`TasksScreen`)**
+   - Restored original grid data table (ID, Equipment, Area, Zone columns).
+   - Category tabs filter (`ALL`, `MAINTENANCE`, `REPAIR`, `INSPECTION`) using a flex-divided row structure, ensuring tabs fit perfectly without text clipping on narrow screen widths (e.g. `570x1230` Genymotion).
+   - **Dynamic Row Heights**: Cells wrap text content dynamically if it exceeds space boundaries, preventing information from being hidden or truncated.
+   - Back button to return to the Dashboard.
+
+4. **🔍 Detailed Ticket Inspector (`TaskDetailsScreen`)**
+   - Detailed task descriptions and metadata with live status updater buttons (`Pending`, `In Progress`, `Completed`).
+
+5. **👤 Minimal Card Profile (`ProfileScreen`)**
+   - Cohesively designed centered-card layout matching the Login page.
+   - Dynamic user info and logout triggers.
+
+6. **🍔 Hamburger Menu Drawer (`SidebarModal`)**
+   - Left-sliding modal displaying navigation shortcuts (**Task**, **Profile**).
+
+7. **⚡ Loading Feedback Overlays (For Slower Devices)**
+   - **Authentication Loading Page**: Visual spinner overlay displayed during login validations (`"Authenticating, please wait..."`).
+   - **Mounting Task Loader**: Displays a loading screen spinner (`"Loading task list..."`) for 450ms when rendering the tasks page, ensuring users know the app is active and retrieving data.
+   - **Status Change Spinner**: Displays an update progress overlay (`"Updating task status..."`) when toggling task statuses inside the inspector.
+
+---
+
+## 💻 Genymotion Execution Guide
+
+Follow these steps to run the application on your **Genymotion** emulator:
+
+### Step 1: Configure Genymotion ADB Settings (Crucial)
+To avoid ADB version conflicts between Genymotion's built-in tools and the Android SDK, link Genymotion directly to your custom SDK:
+1. Open Genymotion and click **Settings**.
+2. Select the **ADB** tab.
+3. Select **Use custom Android SDK tools**.
+4. Browse and select your local Android SDK directory (usually located at `C:\Users\<YourUsername>\AppData\Local\Android\Sdk`).
+
+---
+
+### Step 2: Run Genymotion Virtual Device
+- Start your configured Genymotion Android Virtual Device.
+- Open a command terminal and verify that ADB detects the simulator:
+  ```sh
+  adb devices
+  ```
+  *(You should see an IP-based emulator listed, e.g., `192.168.56.101:5555 device`).*
+
+---
+
+### Step 3: Launch Metro Bundler
+In the root directory of your project (`F:\smsApp`), start the Metro JS packager:
 ```sh
-# Using npm
 npm start
-
-# OR using Yarn
-yarn start
 ```
+*Keep this terminal window open in the background.*
 
-## Step 2: Build and run your app
+---
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
+### Step 4: Build & Deploy
+In a new terminal window at `F:\smsApp`, execute the Android compilation:
 ```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+npx react-native run-android
 ```
+React Native will build the APK and install it automatically on your running Genymotion device.
 
-### iOS
+---
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+## 🛠️ Troubleshooting Genymotion Issues
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+### Red Screen / Connection Error
+If the app opens on the emulator but displays a red screen with a network connection error:
+1. Run the port-forwarding bridge command to link your emulator back to the Metro server port:
+   ```sh
+   adb reverse tcp:8081 tcp:8081
+   ```
+2. Shake the device or press **Ctrl + M** inside the Genymotion emulator, select **Reload**, and the bundle should load.
 
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+### Manual Drag & Drop Install (Bulletproof Backup)
+If `npx react-native run-android` encounters deployment hurdles:
+1. Build the APK locally using Gradle:
+   ```sh
+   cd android
+   .\gradlew assembleDebug
+   ```
+2. Navigate to:
+   📁 `F:\smsApp\android\app\build\outputs\apk\debug\`
+3. Locate **`app-debug.apk`**.
+4. **Drag and drop** this file directly onto your Genymotion emulator screen. The app will install instantly!
+5. Open the app, start Metro (`npm start`), reverse ports if needed (`adb reverse tcp:8081 tcp:8081`), and begin testing!
