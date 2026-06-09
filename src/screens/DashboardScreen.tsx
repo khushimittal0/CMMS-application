@@ -49,8 +49,9 @@ export function DashboardScreen() {
     }, 450);
   };
 
-  const displayName = user?.fullName || 'operator';
-  const displayRole = user?.role || 'Operator';
+  const displayName = user?.firstName || user?.username || 'Operator';
+  const displayRole = user?.roles?.[0] || 'Operator';
+  const capitalizedRole = displayRole.charAt(0).toUpperCase() + displayRole.slice(1);
 
   return (
     <View style={styles.container}>
@@ -59,9 +60,9 @@ export function DashboardScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Title & Operator Greetings (Dynamic based on login session) */}
         <View style={styles.headerSection}>
-          <Text style={styles.titleText}>{displayRole} Dashboard</Text>
+          <Text style={styles.titleText}>{capitalizedRole} Dashboard</Text>
           <Text style={styles.greetingText}>
-            Welcome, <Text style={styles.boldText}>{displayName}</Text> to the {displayRole} Dashboard
+            Welcome, <Text style={styles.boldText}>{displayName}</Text> to the {capitalizedRole} Dashboard
           </Text>
         </View>
 

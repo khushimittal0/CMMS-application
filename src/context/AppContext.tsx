@@ -1,157 +1,140 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { loginApi, getMyTasks, BackendTask } from '../services/api';
 
-export type TaskType = 'MAINTENANCE' | 'REPAIR' | 'INSPECTION';
-export type TaskStatus = 'Pending' | 'In Progress' | 'Completed';
-export type TaskPriority = 'Low' | 'Medium' | 'High';
+// ─── Types ─────────────────────────────────────────────
 
 export interface Task {
   id: string;
-  equipmentId: string;
-  equipmentName: string;
-  area: string;
-  zone: string;
-  type: TaskType;
-  status: TaskStatus;
-  priority: TaskPriority;
-  date: string;
-  description: string;
+  taskName: string;
+  areaName: string;
+  zoneName: string;
+  operatorName: string;
+  equipments: string[];
+  createdBy: string | null;
 }
 
 export interface User {
   username: string;
-  fullName: string;
-  role: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
 }
 
 interface AppContextType {
   user: User | null;
+  token: string | null;
   isAuthenticated: boolean;
   tasks: Task[];
+  isLoadingTasks: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
-  addTask: (task: Omit<Task, 'id' | 'date'>) => void;
-  updateTaskStatus: (id: string, status: TaskStatus) => void;
+  fetchTasks: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const initialTasks: Task[] = [
-  {
-    id: 'T-1001',
-    equipmentId: 'BF-101',
-    equipmentName: 'Blast Furnace BF-1 Charging System',
-    area: 'Blast Furnace Bay',
-    zone: 'Zone A',
-    type: 'INSPECTION',
-    status: 'Pending',
-    priority: 'High',
-    date: '2026-06-04',
-    description: 'Inspect hopper gates and seal valves for gas leakage and wear due to high temperature raw materials.',
-  },
-  {
-    id: 'T-1002',
-    equipmentId: 'CCM-204',
-    equipmentName: 'Continuous Caster C-2 Tundish Nozzle',
-    area: 'Casting Shop',
-    zone: 'Zone B',
-    type: 'REPAIR',
-    status: 'In Progress',
-    priority: 'High',
-    date: '2026-06-03',
-    description: 'Replace nozzle refractory blocks and align ladle shroud mechanisms.',
-  },
-  {
-    id: 'T-1003',
-    equipmentId: 'HRM-308',
-    equipmentName: 'Hot Rolling Mill Roll Lubricator',
-    area: 'Rolling Mill Area',
-    zone: 'Zone C',
-    type: 'MAINTENANCE',
-    status: 'Completed',
-    priority: 'Medium',
-    date: '2026-06-02',
-    description: 'Lubricate work roll bearings and check oil-mist hydraulic pressure levels.',
-  },
-  {
-    id: 'T-1004',
-    equipmentId: 'COB-412',
-    equipmentName: 'Coke Oven Gas Distribution Valve',
-    area: 'Coke Oven Division',
-    zone: 'Zone A',
-    type: 'MAINTENANCE',
-    status: 'Pending',
-    priority: 'Low',
-    date: '2026-06-04',
-    description: 'Check gas manifold valves and inspect coke pusher alignment guides.',
-  },
-  {
-    id: 'T-1005',
-    equipmentId: 'BOF-505',
-    equipmentName: 'Oxygen Converter A Cooling Line',
-    area: 'Converter Shop',
-    zone: 'Zone D',
-    type: 'REPAIR',
-    status: 'Pending',
-    priority: 'High',
-    date: '2026-06-04',
-    description: 'Repair cooling water line joint leakage to prevent oxygen lance overheating.',
-  },
-];
+// ─── Helpers ───────────────────────────────────────────
+
+function mapBackendTask(bt: BackendTask): Task {
+  return {
+    id: bt.id.toString(),
+    taskName: bt.taskName,
+    areaName: bt.areaName,
+    zoneName: bt.zoneName,
+    operatorName: bt.operatorName,
+    equipments: bt.equipments ?? [],
+    createdBy: bt.createdBy,
+  };
+}
+
+// ─── Provider ──────────────────────────────────────────
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [token, setToken] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
 
+  // Fetch tasks for the logged-in operator
+  const fetchTasks = useCallback(async (authToken?: string) => {
+    const tkn = authToken ?? token;
+    if (!tkn) return;
+
+    setIsLoadingTasks(true);
+    try {
+      const backendTasks = await getMyTasks(tkn);
+      setTasks(backendTasks.map(mapBackendTask));
+    } catch {
+      // If fetch fails, keep existing tasks (could be network issue)
+      console.warn('Failed to fetch tasks from backend');
+    } finally {
+      setIsLoadingTasks(false);
+    }
+  }, [token]);
+
+  // Login — only operators can login through the app
   const login = async (username: string, password: string) => {
-    // Simple basic mock validations
     if (!username.trim() || !password.trim()) {
       return { success: false, error: 'All fields are required' };
     }
-    
-    const cleanUsername = username.trim().toLowerCase();
-    
-    if (cleanUsername === 'operator' && password === 'operator123') {
-      const loggedUser = {
-        username: 'operator',
-        fullName: 'mera operator',
-        role: 'Operator',
+
+    try {
+      const response = await loginApi(username.trim(), password);
+
+      // Check if user has operator role
+      const roles = response.roles ?? [];
+      const isOperator = roles.some(
+        (r) => r.toLowerCase() === 'operator',
+      );
+
+      if (!isOperator) {
+        return {
+          success: false,
+          error: 'Access denied. Only operators can log in to this app.',
+        };
+      }
+
+      // Store token and user info
+      setToken(response.token);
+
+      const loggedUser: User = {
+        username: response.username,
+        firstName: response.firstName,
+        lastName: response.lastName,
+        roles: response.roles,
       };
+
       setUser(loggedUser);
+
+      // Fetch operator's tasks right after login
+      await fetchTasks(response.token);
+
       return { success: true };
-    } else {
-      return { success: false, error: 'Invalid username or password' };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || 'Login failed. Please check your credentials.',
+      };
     }
   };
 
   const logout = () => {
     setUser(null);
-  };
-
-  const addTask = (newTask: Omit<Task, 'id' | 'date'>) => {
-    const formattedTask: Task = {
-      ...newTask,
-      id: `T-${Math.floor(1000 + Math.random() * 9000)}`,
-      date: new Date().toISOString().split('T')[0],
-    };
-    setTasks((prevTasks) => [formattedTask, ...prevTasks]);
-  };
-
-  const updateTaskStatus = (id: string, status: TaskStatus) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) => (task.id === id ? { ...task, status } : task))
-    );
+    setToken(null);
+    setTasks([]);
   };
 
   return (
     <AppContext.Provider
       value={{
         user,
+        token,
         isAuthenticated: !!user,
         tasks,
+        isLoadingTasks,
         login,
         logout,
-        addTask,
-        updateTaskStatus,
+        fetchTasks,
       }}
     >
       {children}

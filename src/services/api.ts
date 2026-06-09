@@ -1,0 +1,116 @@
+// Central API service for communicating with the BackendCMMS server.
+// All backend calls go through this module.
+
+import { Platform } from 'react-native';
+
+const BASE_URL = Platform.select({
+  android: 'http://192.168.18.185:5128',
+  ios: 'http://localhost:5128',
+  default: 'http://localhost:5128',
+});
+
+// ─── Auth ──────────────────────────────────────────────
+
+export interface LoginResponse {
+  token: string;
+  expiresAt: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+}
+
+export async function loginApi(
+  username: string,
+  password: string,
+): Promise<LoginResponse> {
+  const res = await fetch(`${BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? 'Login failed');
+  }
+
+  return res.json();
+}
+
+// ─── Tasks ─────────────────────────────────────────────
+
+export interface BackendTask {
+  id: number;
+  taskName: string;
+  createdBy: string | null;
+  areaName: string;
+  zoneName: string;
+  operatorName: string;
+  equipments: string[];
+}
+
+interface TasksResponse {
+  task: BackendTask[];
+}
+
+export async function getMyTasks(token: string): Promise<BackendTask[]> {
+  const res = await fetch(`${BASE_URL}/task/my-tasks`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? 'Failed to fetch tasks');
+  }
+
+  const data: TasksResponse = await res.json();
+  return data.task ?? [];
+}
+
+// ─── User Profile ──────────────────────────────────────
+
+export interface BackendUser {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string;
+  status: string;
+  username: string;
+  roles: string[] | null;
+  permissionAllocated: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
+export async function getUserProfile(
+  token: string,
+  username: string,
+): Promise<BackendUser | null> {
+  // The backend GET /user returns all users (needs CanViewUser permission).
+  // Operators may not have that permission, so we'll handle 403 gracefully.
+  try {
+    const res = await fetch(`${BASE_URL}/user`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!res.ok) {
+      return null; // Operator may not have permission to view user list
+    }
+
+    const users: BackendUser[] = await res.json();
+    return users.find((u) => u.username === username) ?? null;
+  } catch {
+    return null;
+  }
+}

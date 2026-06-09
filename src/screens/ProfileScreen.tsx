@@ -25,8 +25,10 @@ export function ProfileScreen() {
     navigation.navigate(screenName);
   };
 
-  const displayName = user?.fullName || 'operator';
-  const displayRole = user?.role || 'Operator';
+  const displayName = user?.firstName && user?.lastName
+    ? `${user.firstName} ${user.lastName}`
+    : user?.username || 'Operator';
+  const displayRole = user?.roles?.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ') || 'Operator';
   const displayUsername = user?.username || 'operator';
 
   return (
