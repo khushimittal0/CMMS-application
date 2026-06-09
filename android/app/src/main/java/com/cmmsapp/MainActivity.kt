@@ -1,4 +1,4 @@
-package com.smsapp
+package com.cmmsapp
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

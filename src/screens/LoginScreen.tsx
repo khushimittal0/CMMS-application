@@ -9,11 +9,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
 } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { CustomIcon } from '../components/CustomIcon';
 import { CustomHeader } from '../components/CustomHeader';
 import { theme } from '../styles/theme';
+import { forgotPasswordApi } from '../services/api';
 
 export function LoginScreen() {
   const { login } = useApp();
@@ -21,6 +23,15 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Forgot Password state
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotError, setForgotError] = useState<string | null>(null);
+  const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
+  const [isForgotLoading, setIsForgotLoading] = useState(false);
 
   // Focus transition refs
   const passwordInputRef = useRef<TextInput>(null);
@@ -42,6 +53,41 @@ export function LoginScreen() {
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setForgotError(null);
+    setForgotSuccess(null);
+
+    if (!forgotUsername.trim() || !forgotEmail.trim() || !forgotNewPassword.trim()) {
+      setForgotError('All fields are required.');
+      return;
+    }
+    if (forgotNewPassword.length < 6) {
+      setForgotError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setIsForgotLoading(true);
+    try {
+      const response = await forgotPasswordApi(
+        forgotUsername.trim(),
+        forgotEmail.trim(),
+        forgotNewPassword,
+      );
+      if (response.success) {
+        setForgotSuccess(response.message || 'Password reset successfully!');
+        setForgotUsername('');
+        setForgotEmail('');
+        setForgotNewPassword('');
+      } else {
+        setForgotError('Failed to reset password.');
+      }
+    } catch (err: any) {
+      setForgotError(err?.message || 'Failed to reset password.');
+    } finally {
+      setIsForgotLoading(false);
     }
   };
 
@@ -124,7 +170,15 @@ export function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.forgotPassword} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.forgotPassword}
+              activeOpacity={0.7}
+              onPress={() => {
+                setForgotError(null);
+                setForgotSuccess(null);
+                setShowForgotModal(true);
+              }}
+            >
               <Text style={styles.forgotPasswordText}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
@@ -141,6 +195,108 @@ export function LoginScreen() {
           <Text style={styles.loadingText}>Authenticating, please wait...</Text>
         </View>
       )}
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={showForgotModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowForgotModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowForgotModal(false);
+                  setForgotError(null);
+                  setForgotSuccess(null);
+                }}
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {forgotError && (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>{forgotError}</Text>
+              </View>
+            )}
+
+            {forgotSuccess && (
+              <View style={styles.successContainer}>
+                <Text style={styles.successText}>{forgotSuccess}</Text>
+              </View>
+            )}
+
+            {/* Reset Fields */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Username *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your username"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={forgotUsername}
+                onChangeText={(text) => {
+                  setForgotUsername(text);
+                  if (forgotError) setForgotError(null);
+                }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Registered Email *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter registered email"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={forgotEmail}
+                onChangeText={(text) => {
+                  setForgotEmail(text);
+                  if (forgotError) setForgotError(null);
+                }}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>New Password *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter new password"
+                placeholderTextColor={theme.colors.textSecondary}
+                value={forgotNewPassword}
+                onChangeText={(text) => {
+                  setForgotNewPassword(text);
+                  if (forgotError) setForgotError(null);
+                }}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.loginButton}
+              onPress={handleForgotPassword}
+              disabled={isForgotLoading}
+              activeOpacity={0.8}
+            >
+              {isForgotLoading ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.loginButtonText}>RESET PASSWORD</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -271,5 +427,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: theme.colors.textPrimary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: theme.spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: theme.colors.cardBg,
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.lg,
+    shadowColor: theme.colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEEEEE',
+    paddingBottom: theme.spacing.xs,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
+  },
+  closeButton: {
+    padding: theme.spacing.xs,
+  },
+  closeButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: theme.colors.textSecondary,
+  },
+  successContainer: {
+    width: '100%',
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#C8E6C9',
+    padding: theme.spacing.sm,
+    borderRadius: theme.borderRadius.sm,
+    marginBottom: theme.spacing.md,
+  },
+  successText: {
+    color: theme.colors.primary,
+    fontSize: 13,
+    textAlign: 'center',
   },
 });

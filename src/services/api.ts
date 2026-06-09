@@ -4,7 +4,7 @@
 import { Platform } from 'react-native';
 
 const BASE_URL = Platform.select({
-  android: 'http://192.168.18.185:5128',
+  android: 'http://192.168.1.94:5128',
   ios: 'http://localhost:5128',
   default: 'http://localhost:5128',
 });
@@ -142,3 +142,27 @@ export async function getUserProfile(
     return null;
   }
 }
+
+export async function forgotPasswordApi(
+  username: string,
+  email: string,
+  newPassword: string,
+): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email, newPassword }),
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(data?.message ?? 'Reset password failed.');
+  }
+
+  return {
+    success: true,
+    message: data?.message ?? 'Password updated successfully.',
+  };
+}
+
