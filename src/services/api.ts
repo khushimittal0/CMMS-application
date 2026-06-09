@@ -48,6 +48,12 @@ export interface BackendTask {
   zoneName: string;
   operatorName: string;
   equipments: string[];
+  equipmentId?: string;
+  equipmentName?: string;
+  type?: string;
+  status?: string;
+  priority?: string;
+  description?: string;
 }
 
 interface TasksResponse {
@@ -70,6 +76,28 @@ export async function getMyTasks(token: string): Promise<BackendTask[]> {
 
   const data: TasksResponse = await res.json();
   return data.task ?? [];
+}
+
+export async function updateTaskStatusApi(
+  taskId: string,
+  status: string,
+  token: string,
+): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(`${BASE_URL}/task/${taskId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ status }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? 'Failed to update task status');
+  }
+
+  return res.json();
 }
 
 // ─── User Profile ──────────────────────────────────────

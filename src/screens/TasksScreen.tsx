@@ -8,7 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
-import { useApp, Task } from '../context/AppContext';
+import { useApp, Task, TaskType } from '../context/AppContext';
 import { CustomHeader } from '../components/CustomHeader';
 import { CustomIcon } from '../components/CustomIcon';
 import { SidebarModal } from '../components/SidebarModal';
@@ -26,8 +26,9 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export function TasksScreen() {
-  const { tasks, isLoadingTasks, fetchTasks } = useApp();
+  const { tasks, isLoadingTasks, fetchTasks, isOnline, syncingCount, syncOfflineQueue } = useApp();
   const navigation = useNavigation<NavigationProp>();
+  const [activeTab, setActiveTab] = useState<'ALL' | TaskType>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [isScreenLoading, setIsScreenLoading] = useState(true);
@@ -39,24 +40,92 @@ export function TasksScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Filter tasks based on search query
+  // Calculate dynamic tab counts
+  const getTabCount = (tab: 'ALL' | TaskType) => {
+    if (tab === 'ALL') return tasks.length;
+    return tasks.filter((t) => t.type === tab).length;
+  };
+
+  // Filter tasks based on selected tab and search query
   const filteredTasks = tasks.filter((task) => {
+    const matchesTab = activeTab === 'ALL' || task.type === activeTab;
     const query = searchQuery.toLowerCase();
-    return (
-      task.taskName.toLowerCase().includes(query) ||
-      task.areaName.toLowerCase().includes(query) ||
-      task.zoneName.toLowerCase().includes(query) ||
-      task.equipments.some((eq) => eq.toLowerCase().includes(query))
-    );
+    const matchesSearch =
+      task.equipmentId.toLowerCase().includes(query) ||
+      task.equipmentName.toLowerCase().includes(query) ||
+      task.area.toLowerCase().includes(query) ||
+      task.zone.toLowerCase().includes(query);
+    return matchesTab && matchesSearch;
   });
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'High':
+        return theme.colors.repair;
+      case 'Medium':
+        return theme.colors.maintenance;
+      default:
+        return theme.colors.textSecondary;
+    }
+  };
 
   const handleSidebarNavigation = (screenName: 'Tasks' | 'Profile') => {
     navigation.navigate(screenName);
   };
 
+  const renderTab = (tab: 'ALL' | TaskType, label: string) => {
+    const isActive = activeTab === tab;
+    const count = getTabCount(tab);
+    
+    let indicatorColor = theme.colors.primary;
+    if (tab === 'MAINTENANCE') indicatorColor = theme.colors.maintenance;
+    if (tab === 'REPAIR') indicatorColor = theme.colors.repair;
+    if (tab === 'INSPECTION') indicatorColor = theme.colors.inspection;
+
+    return (
+      <TouchableOpacity
+        key={tab}
+        style={[
+          styles.tabItem,
+          isActive && styles.activeTabItem,
+          isActive && { borderBottomColor: indicatorColor }
+        ]}
+        onPress={() => setActiveTab(tab)}
+        activeOpacity={0.7}
+      >
+        <Text
+          style={[styles.tabText, isActive && styles.activeTabText]}
+          numberOfLines={1}
+        >
+          {label} ({count})
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <CustomHeader showMenu={true} onMenuPress={() => setSidebarVisible(true)} />
+
+      {/* Offline/Sync Banner */}
+      {!isOnline && (
+        <View style={[styles.networkBanner, styles.offlineBanner]}>
+          <Text style={styles.networkBannerText}>
+            ⚠️ You are offline. {syncingCount > 0 ? `Sync pending: ${syncingCount} status updates` : 'Viewing cached tasks'}
+          </Text>
+        </View>
+      )}
+      {isOnline && syncingCount > 0 && (
+        <TouchableOpacity 
+          style={[styles.networkBanner, styles.syncingBanner]}
+          onPress={() => syncOfflineQueue()}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.networkBannerText}>
+            🔄 Network restored! Tap to push {syncingCount} queued updates
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Screen Title & Controls */}
       <View style={styles.contentHeader}>
@@ -71,7 +140,7 @@ export function TasksScreen() {
         </TouchableOpacity>
 
         <View style={styles.titleRow}>
-          <Text style={styles.screenTitle}>My Tasks ({tasks.length})</Text>
+          <Text style={styles.screenTitle}>Tasks Management</Text>
           {/* Refresh button */}
           <TouchableOpacity
             style={styles.refreshButton}
@@ -91,12 +160,20 @@ export function TasksScreen() {
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by task name, area, zone, or equipment..."
+            placeholder="Search by ID, equipment, area or zone..."
             placeholderTextColor={theme.colors.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
         </View>
+      </View>
+
+      {/* Tabs list */}
+      <View style={styles.tabsContainer}>
+        {renderTab('ALL', 'ALL')}
+        {renderTab('MAINTENANCE', 'MAINTENANCE')}
+        {renderTab('REPAIR', 'REPAIR')}
+        {renderTab('INSPECTION', 'INSPECTION')}
       </View>
 
       {isScreenLoading ? (
@@ -109,10 +186,10 @@ export function TasksScreen() {
         <View style={styles.tableWrapper}>
           {/* Table Header */}
           <View style={styles.tableHeader}>
-            <Text style={[styles.headerCell, styles.cellTaskName]}>Task Name</Text>
+            <Text style={[styles.headerCell, styles.cellId]}>Equipment ID</Text>
+            <Text style={[styles.headerCell, styles.cellEquipment]}>Equipment</Text>
             <Text style={[styles.headerCell, styles.cellArea]}>Area</Text>
             <Text style={[styles.headerCell, styles.cellZone]}>Zone</Text>
-            <Text style={[styles.headerCell, styles.cellEquipments]}>Equipments</Text>
           </View>
 
           <ScrollView contentContainerStyle={styles.tableBody}>
@@ -132,24 +209,41 @@ export function TasksScreen() {
                   onPress={() => navigation.navigate('TaskDetails', { taskId: task.id })}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.rowCell, styles.cellTaskName]}>
-                    <Text style={styles.taskNameText} numberOfLines={2}>{task.taskName}</Text>
+                  <View style={[styles.rowCell, styles.cellId]}>
+                    <Text style={styles.idText} numberOfLines={1}>{task.equipmentId}</Text>
+                    {/* Status Indicator circle */}
+                    <View style={[
+                      styles.statusDot,
+                      {
+                        backgroundColor:
+                          task.status === 'Completed'
+                            ? theme.colors.inspection
+                            : task.status === 'In Progress'
+                            ? theme.colors.primary
+                            : theme.colors.textSecondary,
+                      }
+                    ]} />
+                  </View>
+
+                  <View style={[styles.rowCell, styles.cellEquipment]}>
+                    <Text style={styles.cellText} numberOfLines={2}>{task.equipmentName}</Text>
+                    <Text style={styles.taskTypeSubtitle}>{task.type}</Text>
                   </View>
 
                   <View style={[styles.rowCell, styles.cellArea]}>
-                    <Text style={styles.cellText} numberOfLines={2}>{task.areaName}</Text>
+                    <Text style={styles.cellText} numberOfLines={2}>{task.area}</Text>
                   </View>
 
                   <View style={[styles.rowCell, styles.cellZone]}>
-                    <Text style={styles.cellText} numberOfLines={1}>{task.zoneName}</Text>
-                  </View>
-
-                  <View style={[styles.rowCell, styles.cellEquipments]}>
-                    <Text style={styles.cellText} numberOfLines={2}>
-                      {task.equipments.length > 0
-                        ? task.equipments.join(', ')
-                        : '—'}
-                    </Text>
+                    <View style={styles.zoneWrapper}>
+                      <Text style={styles.cellText} numberOfLines={1}>{task.zone}</Text>
+                      {/* Priority badge */}
+                      <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(task.priority) + '15' }]}>
+                        <Text style={[styles.priorityText, { color: getPriorityColor(task.priority) }]}>
+                          {task.priority[0]}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                 </TouchableOpacity>
               ))
@@ -229,6 +323,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.textPrimary,
   },
+  tabsContainer: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    flexDirection: 'row',
+    width: '100%',
+    paddingHorizontal: 4,
+  },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  activeTabItem: {
+    borderBottomColor: theme.colors.primary,
+  },
+  tabText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  activeTabText: {
+    color: theme.colors.textPrimary,
+  },
   tableWrapper: {
     flex: 1,
     margin: theme.spacing.md,
@@ -269,26 +391,57 @@ const styles = StyleSheet.create({
   rowCell: {
     justifyContent: 'center',
   },
-  cellTaskName: {
-    width: '30%',
+  cellId: {
+    width: '25%',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  taskNameText: {
+  idText: {
     color: theme.colors.primary,
     fontWeight: '600',
     fontSize: 13,
+    flex: 1,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginLeft: 4,
+    marginRight: 6,
+  },
+  cellEquipment: {
+    width: '35%',
   },
   cellArea: {
-    width: '25%',
+    width: '22%',
   },
   cellZone: {
     width: '18%',
   },
-  cellEquipments: {
-    width: '27%',
-  },
   cellText: {
     fontSize: 13,
     color: theme.colors.textPrimary,
+  },
+  taskTypeSubtitle: {
+    fontSize: 10,
+    color: theme.colors.textSecondary,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  zoneWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  priorityBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    marginLeft: 4,
+  },
+  priorityText: {
+    fontSize: 9,
+    fontWeight: '700',
   },
   emptyContainer: {
     padding: theme.spacing.xl,
@@ -309,5 +462,22 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: theme.colors.textSecondary,
     fontWeight: '500',
+  },
+  networkBanner: {
+    paddingVertical: 8,
+    paddingHorizontal: theme.spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineBanner: {
+    backgroundColor: '#FFCDD2',
+  },
+  syncingBanner: {
+    backgroundColor: '#E8F5E9',
+  },
+  networkBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.textPrimary,
   },
 });
