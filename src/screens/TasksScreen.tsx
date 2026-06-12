@@ -7,8 +7,9 @@ import {
   ScrollView,
   TextInput,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
-import { useApp, Task, TaskType } from '../context/AppContext';
+import { useApp, Task, TaskType, TaskStatus } from '../context/AppContext';
 import { CustomHeader } from '../components/CustomHeader';
 import { CustomIcon } from '../components/CustomIcon';
 import { SidebarModal } from '../components/SidebarModal';
@@ -26,12 +27,17 @@ type RootStackParamList = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export function TasksScreen() {
-  const { tasks, isLoadingTasks, fetchTasks, isOnline, syncingCount, syncOfflineQueue } = useApp();
+  const { tasks, isLoadingTasks, fetchTasks, isOnline, backendStatus, syncingCount, syncOfflineQueue, user, logout } = useApp();
   const navigation = useNavigation<NavigationProp>();
   const [activeTab, setActiveTab] = useState<'ALL' | TaskType>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [isScreenLoading, setIsScreenLoading] = useState(true);
+  const [tabletViewMode, setTabletViewMode] = useState<'CARD' | 'TABLE'>('TABLE');
+
+  const { width, height } = useWindowDimensions();
+  const isTablet = width >= 768;
+  const isLandscape = width > height;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -69,6 +75,30 @@ export function TasksScreen() {
     }
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Completed':
+        return '#4CAF50'; // Green
+      case 'In Progress':
+        return '#2196F3'; // Blue
+      case 'Cancelled':
+        return '#F44336'; // Red
+      default:
+        return '#FFC107'; // Yellow (Pending)
+    }
+  };
+
+  const getTypeColor = (type: TaskType) => {
+    switch (type) {
+      case 'MAINTENANCE':
+        return theme.colors.maintenance;
+      case 'REPAIR':
+        return theme.colors.repair;
+      default:
+        return theme.colors.inspection;
+    }
+  };
+
   const handleSidebarNavigation = (screenName: 'Tasks' | 'Profile') => {
     navigation.navigate(screenName);
   };
@@ -103,156 +133,325 @@ export function TasksScreen() {
     );
   };
 
+  const renderSidebar = () => {
+    return (
+      <View style={styles.sidebarContainer}>
+        {user && (
+          <View style={styles.sidebarProfile}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{user.username[0].toUpperCase()}</Text>
+            </View>
+            <Text style={styles.sidebarUsername}>{user.username}</Text>
+            <Text style={styles.sidebarRole}>{user.roles?.[0] ?? 'Operator'}</Text>
+          </View>
+        )}
+        <View style={styles.sidebarDivider} />
+        
+        <TouchableOpacity
+          style={styles.sidebarItem}
+          onPress={() => navigation.navigate('Dashboard')}
+        >
+          <CustomIcon name="home" size={18} color={theme.colors.textSecondary} />
+          <Text style={styles.sidebarItemText}>Dashboard</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarItem, styles.sidebarItemActive]}
+          onPress={() => navigation.navigate('Tasks')}
+        >
+          <CustomIcon name="tasks" size={18} color={theme.colors.primary} />
+          <Text style={[styles.sidebarItemText, styles.sidebarItemTextActive]}>Tasks</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.sidebarItem}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <CustomIcon name="profile" size={18} color={theme.colors.textSecondary} />
+          <Text style={styles.sidebarItemText}>Profile</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.sidebarItem, styles.sidebarLogout]}
+          onPress={logout}
+        >
+          <CustomIcon name="logout" size={18} color="#F44336" />
+          <Text style={styles.sidebarLogoutText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderCardList = () => {
+    const showGrid = isTablet && !isLandscape;
+    return (
+      <ScrollView contentContainerStyle={showGrid ? styles.gridBody : styles.cardListBody}>
+        {filteredTasks.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>
+              {tasks.length === 0
+                ? 'No tasks assigned to you yet'
+                : 'No matching tasks found'}
+            </Text>
+          </View>
+        ) : (
+          filteredTasks.map((task) => (
+            <TouchableOpacity
+              key={task.id}
+              style={[styles.taskCard, showGrid && styles.gridCard]}
+              onPress={() => navigation.navigate('TaskDetails', { taskId: task.id })}
+              activeOpacity={0.7}
+            >
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardIdText}>{task.equipmentId}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(task.status) + '15' }]}>
+                  <View style={[styles.statusDotSmall, { backgroundColor: getStatusColor(task.status) }]} />
+                  <Text style={[styles.statusTextBadge, { color: getStatusColor(task.status) }]}>{task.status}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.cardTitle}>{task.taskName}</Text>
+              <Text style={styles.cardSubtitle} numberOfLines={1}>{task.equipmentName}</Text>
+
+              <View style={styles.cardDivider} />
+
+              <View style={styles.cardFooter}>
+                <View style={styles.footerItem}>
+                  <CustomIcon name="home" size={12} color={theme.colors.textSecondary} />
+                  <Text style={styles.footerText} numberOfLines={1}>{task.area} • {task.zone}</Text>
+                </View>
+                <View style={[styles.typeBadge, { backgroundColor: getTypeColor(task.type) + '15' }]}>
+                  <Text style={[styles.typeBadgeText, { color: getTypeColor(task.type) }]}>{task.type}</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+    );
+  };
+
+  const renderResponsiveTable = () => {
+    const showLandscapeTable = isTablet && isLandscape;
+
+    return (
+      <View style={[styles.landscapeTableWrapper, !isTablet && { margin: theme.spacing.xs }]}>
+        {!showLandscapeTable && (
+          <View style={styles.legendContainer}>
+            <View style={styles.legendItem}>
+              <View style={[styles.statusDotSmall, { backgroundColor: '#FFC107' }]} />
+              <Text style={styles.legendText}>Pending</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.statusDotSmall, { backgroundColor: '#2196F3' }]} />
+              <Text style={styles.legendText}>In Progress</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.statusDotSmall, { backgroundColor: '#4CAF50' }]} />
+              <Text style={styles.legendText}>Completed</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.statusDotSmall, { backgroundColor: '#F44336' }]} />
+              <Text style={styles.legendText}>Cancelled</Text>
+            </View>
+          </View>
+        )}
+        <View style={styles.landscapeTableHeader}>
+          {showLandscapeTable ? (
+            <>
+              <Text style={[styles.lHeaderCell, styles.colWidth12]}>Equipment ID</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth18]}>Equipment</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth15]}>Area</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth10]}>Zone</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth15]}>Assigned To</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth12]}>Due Date</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth8]}>Priority</Text>
+              <Text style={[styles.lHeaderCell, styles.colWidth10]}>Status</Text>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.lHeaderCell, isTablet ? styles.colWidthPortrait1 : styles.colWidthPhone1]}>Equipment ID</Text>
+              <Text style={[styles.lHeaderCell, isTablet ? styles.colWidthPortrait2 : styles.colWidthPhone2]}>Equipment</Text>
+              <Text style={[styles.lHeaderCell, isTablet ? styles.colWidthPortrait3 : styles.colWidthPhone3]}>Area</Text>
+            </>
+          )}
+        </View>
+        <ScrollView contentContainerStyle={styles.tableBody}>
+          {filteredTasks.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No matching tasks found</Text>
+            </View>
+          ) : (
+            filteredTasks.map((task) => (
+              <TouchableOpacity
+                key={task.id}
+                style={styles.landscapeTableRow}
+                onPress={() => navigation.navigate('TaskDetails', { taskId: task.id })}
+                activeOpacity={0.7}
+              >
+                {showLandscapeTable ? (
+                  <>
+                    <Text style={[styles.lCellText, styles.colWidth12, styles.equipmentIdCell]} numberOfLines={1}>
+                      {task.equipmentId}
+                    </Text>
+                    <View style={styles.colWidth18}>
+                      <Text style={styles.lCellTextBold} numberOfLines={1}>{task.taskName}</Text>
+                      <Text style={styles.taskTypeSubtitle} numberOfLines={1}>{task.equipmentName}</Text>
+                    </View>
+                    <Text style={[styles.lCellText, styles.colWidth15]} numberOfLines={1}>{task.area}</Text>
+                    <Text style={[styles.lCellText, styles.colWidth10]} numberOfLines={1}>{task.zone}</Text>
+                    <Text style={[styles.lCellText, styles.colWidth15]} numberOfLines={1}>{task.operatorName}</Text>
+                    <Text style={[styles.lCellText, styles.colWidth12]} numberOfLines={1}>{task.date}</Text>
+                    <View style={styles.colWidth8}>
+                      <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(task.priority) + '15' }]}>
+                        <Text style={[styles.priorityText, { color: getPriorityColor(task.priority) }]}>
+                          {task.priority}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.colWidth10}>
+                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(task.status) + '15' }]}>
+                        <Text style={[styles.statusTextBadge, { color: getStatusColor(task.status) }]}>{task.status}</Text>
+                      </View>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={[styles.rowDirection, isTablet ? styles.colWidthPortrait1 : styles.colWidthPhone1, styles.alignItemsCenter]}>
+                      <View style={[styles.statusDotSmall, { backgroundColor: getStatusColor(task.status), marginRight: 6 }]} />
+                      <Text style={[styles.lCellText, styles.equipmentIdCell, { paddingHorizontal: 0 }]} numberOfLines={1}>
+                        {task.equipmentId}
+                      </Text>
+                    </View>
+                    <View style={isTablet ? styles.colWidthPortrait2 : styles.colWidthPhone2}>
+                      <Text style={styles.lCellTextBold} numberOfLines={1}>{task.taskName}</Text>
+                      <Text style={styles.taskTypeSubtitle} numberOfLines={1}>{task.equipmentName}</Text>
+                    </View>
+                    <Text style={[styles.lCellText, isTablet ? styles.colWidthPortrait3 : styles.colWidthPhone3]} numberOfLines={1}>
+                      {task.area}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <CustomHeader showMenu={true} onMenuPress={() => setSidebarVisible(true)} />
+      <CustomHeader showMenu={!isTablet || !isLandscape} onMenuPress={() => setSidebarVisible(true)} />
 
       {/* Offline/Sync Banner */}
-      {!isOnline && (
+      {backendStatus === 'OFFLINE' && (
         <View style={[styles.networkBanner, styles.offlineBanner]}>
           <Text style={styles.networkBannerText}>
-            ⚠️ You are offline. {syncingCount > 0 ? `Sync pending: ${syncingCount} status updates` : 'Viewing cached tasks'}
+            ⚠️ You are offline. {syncingCount > 0 ? `Sync pending: ${syncingCount} updates` : 'Viewing cached tasks'}
           </Text>
         </View>
       )}
-      {isOnline && syncingCount > 0 && (
+      {backendStatus === 'SERVER_DOWN' && (
+        <View style={[styles.networkBanner, styles.offlineBanner]}>
+          <Text style={styles.networkBannerText}>
+            ⚠️ Server Down. Backend unreachable. Updates will sync automatically when reachable.
+          </Text>
+        </View>
+      )}
+      {backendStatus === 'ONLINE' && syncingCount > 0 && (
         <TouchableOpacity 
           style={[styles.networkBanner, styles.syncingBanner]}
           onPress={() => syncOfflineQueue()}
           activeOpacity={0.8}
         >
           <Text style={styles.networkBannerText}>
-            🔄 Network restored! Tap to push {syncingCount} queued updates
+            🔄 Tap to sync {syncingCount} queued updates to backend
           </Text>
         </TouchableOpacity>
       )}
 
-      {/* Screen Title & Controls */}
-      <View style={styles.contentHeader}>
-        {/* Back Link to Dashboard */}
-        <TouchableOpacity
-          style={styles.backLink}
-          onPress={() => navigation.navigate('Dashboard')}
-          activeOpacity={0.7}
-        >
-          <CustomIcon name="chevron-right" size={14} color={theme.colors.primary} />
-          <Text style={styles.backLinkText}>Back to Dashboard</Text>
-        </TouchableOpacity>
+      <View style={styles.mainLayout}>
+        {isTablet && isLandscape && renderSidebar()}
 
-        <View style={styles.titleRow}>
-          <Text style={styles.screenTitle}>Tasks Management</Text>
-          {/* Refresh button */}
-          <TouchableOpacity
-            style={styles.refreshButton}
-            onPress={() => fetchTasks()}
-            activeOpacity={0.7}
-            disabled={isLoadingTasks}
-          >
-            {isLoadingTasks ? (
-              <ActivityIndicator color={theme.colors.primary} size="small" />
-            ) : (
-              <Text style={styles.refreshButtonText}>↻ Refresh</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+        <View style={styles.contentContainer}>
+          {/* Screen Title & Controls */}
+          <View style={styles.contentHeader}>
+            <TouchableOpacity
+              style={styles.backLink}
+              onPress={() => navigation.navigate('Dashboard')}
+              activeOpacity={0.7}
+            >
+              <CustomIcon name="chevron-right" size={14} color={theme.colors.primary} />
+              <Text style={styles.backLinkText}>Back to Dashboard</Text>
+            </TouchableOpacity>
 
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by ID, equipment, area or zone..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View>
-      </View>
+            <View style={styles.titleRow}>
+              <Text style={styles.screenTitle}>Tasks Management</Text>
+              <TouchableOpacity
+                style={styles.refreshButton}
+                onPress={() => fetchTasks()}
+                activeOpacity={0.7}
+                disabled={isLoadingTasks}
+              >
+                {isLoadingTasks ? (
+                  <ActivityIndicator color={theme.colors.primary} size="small" />
+                ) : (
+                  <Text style={styles.refreshButtonText}>↻ Refresh</Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
-      {/* Tabs list */}
-      <View style={styles.tabsContainer}>
-        {renderTab('ALL', 'ALL')}
-        {renderTab('MAINTENANCE', 'MAINTENANCE')}
-        {renderTab('REPAIR', 'REPAIR')}
-        {renderTab('INSPECTION', 'INSPECTION')}
-      </View>
-
-      {isScreenLoading ? (
-        <View style={styles.screenLoader}>
-          <ActivityIndicator color={theme.colors.primary} size="large" />
-          <Text style={styles.screenLoaderText}>Loading task list...</Text>
-        </View>
-      ) : (
-        /* Tasks Table */
-        <View style={styles.tableWrapper}>
-          {/* Table Header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.headerCell, styles.cellId]}>Equipment ID</Text>
-            <Text style={[styles.headerCell, styles.cellEquipment]}>Equipment</Text>
-            <Text style={[styles.headerCell, styles.cellArea]}>Area</Text>
-            <Text style={[styles.headerCell, styles.cellZone]}>Zone</Text>
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by ID, equipment, area or zone..."
+                placeholderTextColor={theme.colors.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
           </View>
 
-          <ScrollView contentContainerStyle={styles.tableBody}>
-            {filteredTasks.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>
-                  {tasks.length === 0
-                    ? 'No tasks assigned to you yet'
-                    : 'No matching tasks found'}
-                </Text>
-              </View>
-            ) : (
-              filteredTasks.map((task) => (
-                <TouchableOpacity
-                  key={task.id}
-                  style={styles.tableRow}
-                  onPress={() => navigation.navigate('TaskDetails', { taskId: task.id })}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.rowCell, styles.cellId]}>
-                    <Text style={styles.idText} numberOfLines={1}>{task.equipmentId}</Text>
-                    {/* Status Indicator circle */}
-                    <View style={[
-                      styles.statusDot,
-                      {
-                        backgroundColor:
-                          task.status === 'Completed'
-                            ? theme.colors.inspection
-                            : task.status === 'In Progress'
-                            ? theme.colors.primary
-                            : theme.colors.textSecondary,
-                      }
-                    ]} />
-                  </View>
+          {/* Toggle for Tablet view mode */}
+          {isTablet && (
+            <View style={styles.toggleContainer}>
+              <TouchableOpacity
+                style={[styles.toggleBtn, tabletViewMode === 'TABLE' && styles.toggleBtnActive]}
+                onPress={() => setTabletViewMode('TABLE')}
+              >
+                <Text style={[styles.toggleBtnText, tabletViewMode === 'TABLE' && styles.toggleBtnTextActive]}>Table</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleBtn, tabletViewMode === 'CARD' && styles.toggleBtnActive]}
+                onPress={() => setTabletViewMode('CARD')}
+              >
+                <Text style={[styles.toggleBtnText, tabletViewMode === 'CARD' && styles.toggleBtnTextActive]}>Cards</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-                  <View style={[styles.rowCell, styles.cellEquipment]}>
-                    <Text style={styles.cellText} numberOfLines={2}>{task.equipmentName}</Text>
-                    <Text style={styles.taskTypeSubtitle}>{task.type}</Text>
-                  </View>
+          {/* Tabs list */}
+          <View style={styles.tabsContainer}>
+            {renderTab('ALL', 'ALL')}
+            {renderTab('MAINTENANCE', 'MAINTENANCE')}
+            {renderTab('REPAIR', 'REPAIR')}
+            {renderTab('INSPECTION', 'INSPECTION')}
+          </View>
 
-                  <View style={[styles.rowCell, styles.cellArea]}>
-                    <Text style={styles.cellText} numberOfLines={2}>{task.area}</Text>
-                  </View>
-
-                  <View style={[styles.rowCell, styles.cellZone]}>
-                    <View style={styles.zoneWrapper}>
-                      <Text style={styles.cellText} numberOfLines={1}>{task.zone}</Text>
-                      {/* Priority badge */}
-                      <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(task.priority) + '15' }]}>
-                        <Text style={[styles.priorityText, { color: getPriorityColor(task.priority) }]}>
-                          {task.priority[0]}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
+          {isScreenLoading ? (
+            <View style={styles.screenLoader}>
+              <ActivityIndicator color={theme.colors.primary} size="large" />
+              <Text style={styles.screenLoaderText}>Loading task list...</Text>
+            </View>
+          ) : (
+            (!isTablet || tabletViewMode === 'TABLE') ? renderResponsiveTable() : renderCardList()
+          )}
         </View>
-      )}
+      </View>
 
-      {/* Slide-out Sidebar Drawer Modal */}
+      {/* Slide-out Sidebar Drawer Modal (Mobile / Portrait Tablet) */}
       {sidebarVisible && (
         <SidebarModal
           visible={sidebarVisible}
@@ -268,6 +467,84 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  mainLayout: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sidebarContainer: {
+    width: 240,
+    backgroundColor: theme.colors.headerBg,
+    borderRightWidth: 1,
+    borderRightColor: '#222222',
+    paddingVertical: theme.spacing.xl,
+    paddingHorizontal: theme.spacing.md,
+  },
+  sidebarProfile: {
+    alignItems: 'center',
+    marginBottom: theme.spacing.lg,
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  sidebarUsername: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  sidebarRole: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sidebarDivider: {
+    height: 1,
+    backgroundColor: '#333333',
+    marginVertical: theme.spacing.md,
+  },
+  sidebarItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  sidebarItemActive: {
+    backgroundColor: theme.colors.primary + '15',
+  },
+  sidebarItemText: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: theme.spacing.sm,
+  },
+  sidebarItemTextActive: {
+    color: theme.colors.primary,
+  },
+  sidebarLogout: {
+    marginTop: 'auto',
+  },
+  sidebarLogoutText: {
+    color: '#F44336',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: theme.spacing.sm,
+  },
+  contentContainer: {
+    flex: 1,
   },
   contentHeader: {
     paddingHorizontal: theme.spacing.md,
@@ -351,12 +628,20 @@ const styles = StyleSheet.create({
   activeTabText: {
     color: theme.colors.textPrimary,
   },
-  tableWrapper: {
-    flex: 1,
-    margin: theme.spacing.md,
+  cardListBody: {
+    padding: theme.spacing.md,
+  },
+  gridBody: {
+    padding: theme.spacing.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  taskCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: theme.borderRadius.md,
-    overflow: 'hidden',
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
     shadowColor: theme.colors.shadow,
@@ -365,62 +650,79 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  tableHeader: {
-    height: 44,
-    backgroundColor: '#000000',
+  gridCard: {
+    width: '48%',
+  },
+  cardHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
   },
-  headerCell: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  tableBody: {
-    flexGrow: 1,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  rowCell: {
-    justifyContent: 'center',
-  },
-  cellId: {
-    width: '25%',
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  idText: {
+  cardIdText: {
     color: theme.colors.primary,
-    fontWeight: '600',
-    fontSize: 13,
-    flex: 1,
+    fontWeight: '700',
+    fontSize: 12,
   },
-  statusDot: {
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+  },
+  statusDotSmall: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    marginLeft: 4,
-    marginRight: 6,
+    marginRight: 4,
   },
-  cellEquipment: {
-    width: '35%',
+  statusTextBadge: {
+    fontSize: 10,
+    fontWeight: '700',
   },
-  cellArea: {
-    width: '22%',
-  },
-  cellZone: {
-    width: '18%',
-  },
-  cellText: {
-    fontSize: 13,
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
     color: theme.colors.textPrimary,
+    marginBottom: 2,
+  },
+  cardSubtitle: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.sm,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: theme.colors.border,
+    marginVertical: theme.spacing.xs,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: theme.spacing.xs,
+  },
+  footerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  footerText: {
+    fontSize: 11,
+    color: theme.colors.textSecondary,
+    marginLeft: 4,
+  },
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  typeBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
   },
   taskTypeSubtitle: {
     fontSize: 10,
@@ -428,20 +730,83 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 1,
   },
-  zoneWrapper: {
+  landscapeTableWrapper: {
+    flex: 1,
+    margin: theme.spacing.md,
+    backgroundColor: '#FFFFFF',
+    borderRadius: theme.borderRadius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  landscapeTableHeader: {
+    height: 44,
+    backgroundColor: '#000000',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.sm,
+  },
+  lHeaderCell: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 4,
+  },
+  tableBody: {
+    flexGrow: 1,
+  },
+  landscapeTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  lCellText: {
+    fontSize: 13,
+    color: theme.colors.textPrimary,
+    paddingHorizontal: 4,
+  },
+  lCellTextBold: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.textPrimary,
   },
   priorityBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 3,
-    marginLeft: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
   },
   priorityText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.primaryLight,
+    padding: 3,
+    borderRadius: theme.borderRadius.sm,
+    alignSelf: 'flex-start',
+    marginLeft: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  toggleBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: theme.borderRadius.sm - 1,
+  },
+  toggleBtnActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  toggleBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
+  },
+  toggleBtnTextActive: {
+    color: theme.colors.primary,
   },
   emptyContainer: {
     padding: theme.spacing.xl,
@@ -479,5 +844,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: theme.colors.textPrimary,
+  },
+  // Column width styles for landscape table
+  colWidth8: {
+    width: '8%',
+  },
+  colWidth10: {
+    width: '10%',
+  },
+  colWidth12: {
+    width: '12%',
+  },
+  colWidth15: {
+    width: '15%',
+  },
+  colWidth18: {
+    width: '18%',
+  },
+  // Equipment ID cell styling
+  equipmentIdCell: {
+    color: theme.colors.primary,
+    fontWeight: '600',
+  },
+  rowDirection: {
+    flexDirection: 'row',
+  },
+  alignItemsCenter: {
+    alignItems: 'center',
+  },
+  colWidthPortrait1: {
+    width: '25%',
+  },
+  colWidthPortrait2: {
+    width: '50%',
+  },
+  colWidthPortrait3: {
+    width: '25%',
+  },
+  colWidthPhone1: {
+    width: '32%',
+  },
+  colWidthPhone2: {
+    width: '43%',
+  },
+  colWidthPhone3: {
+    width: '25%',
+  },
+  legendContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 8,
+    backgroundColor: '#FAFAFA',
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 10,
+  },
+  legendText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.colors.textSecondary,
+    marginLeft: 4,
   },
 });

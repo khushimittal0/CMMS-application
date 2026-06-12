@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { loginApi, getMyTasks, updateTaskStatusApi, BackendTask } from '../services/api';
+import { loginApi, getMyTasks, updateTaskStatusApi, BackendTask, checkHealthApi, addRemarkApi, BASE_URL } from '../services/api';
 
 // ─── Types ─────────────────────────────────────────────
 
@@ -39,11 +39,13 @@ interface AppContextType {
   tasks: Task[];
   isLoadingTasks: boolean;
   isOnline: boolean;
+  backendStatus: 'ONLINE' | 'SERVER_DOWN' | 'OFFLINE';
   syncingCount: number;
   login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   fetchTasks: () => Promise<void>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
+  addRemark: (taskId: string, remarkText: string) => Promise<void>;
   syncOfflineQueue: () => Promise<void>;
 }
 
@@ -62,7 +64,6 @@ function mapBackendTask(bt: BackendTask): Task {
     type: (bt.type as TaskType) ?? 'MAINTENANCE',
     status: (bt.status as TaskStatus) ?? 'Pending',
     priority: (bt.priority as TaskPriority) ?? 'Low',
-    // Format creation time or use today's date if not present
     date: new Date().toISOString().split('T')[0],
     description: bt.description ?? '',
     operatorName: bt.operatorName,
@@ -78,6 +79,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [backendStatus, setBackendStatus] = useState<'ONLINE' | 'SERVER_DOWN' | 'OFFLINE'>('ONLINE');
   const [syncingCount, setSyncingCount] = useState(0);
 
   // Fetch tasks for the logged-in operator
@@ -89,11 +91,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const backendTasks = await getMyTasks(tkn);
       setTasks(backendTasks.map(mapBackendTask));
-      setIsOnline(true); // Successful fetch proves we are online
+      setBackendStatus('ONLINE');
+      setIsOnline(true);
     } catch (err) {
       console.warn('Failed to fetch tasks from backend', err);
-      // Keep existing tasks, but assume we are offline if fetch failed with network exception
-      setIsOnline(false);
+      // Determine if offline or server down
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        setBackendStatus('OFFLINE');
+        setIsOnline(false);
+      } else {
+        setBackendStatus('SERVER_DOWN');
+        setIsOnline(true);
+      }
     } finally {
       setIsLoadingTasks(false);
     }
@@ -105,41 +115,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!tkn) return;
 
     try {
-      const queuedStr = await AsyncStorage.getItem('@offline_updates');
+      const queuedStr = await AsyncStorage.getItem('@offline_queue');
       if (!queuedStr) {
         setSyncingCount(0);
         return;
       }
 
-      const queue: Array<{ id: string; status: TaskStatus }> = JSON.parse(queuedStr);
+      const queue: Array<{ id: string; endpoint: string; method: 'PATCH' | 'POST'; data: any; timestamp: number }> = JSON.parse(queuedStr);
       if (queue.length === 0) {
         setSyncingCount(0);
         return;
       }
 
-      console.log(`Syncing ${queue.length} offline updates to backend...`);
+      console.log(`Syncing ${queue.length} offline requests to backend...`);
       setSyncingCount(queue.length);
 
-      const failedQueue: Array<{ id: string; status: TaskStatus }> = [];
+      const failedQueue: typeof queue = [];
 
-      for (const update of queue) {
+      for (const req of queue) {
         try {
-          await updateTaskStatusApi(update.id, update.status, tkn);
-          console.log(`Synced task ${update.id} to status: ${update.status}`);
+          const res = await fetch(`${BASE_URL}${req.endpoint}`, {
+            method: req.method,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${tkn}`,
+            },
+            body: JSON.stringify(req.data),
+          });
+          
+          if (!res.ok) {
+            throw new Error(`Server returned status ${res.status}`);
+          }
+          console.log(`Successfully synced offline request: ${req.endpoint}`);
         } catch (err) {
-          console.warn(`Failed to sync task ${update.id}:`, err);
-          failedQueue.push(update);
+          console.warn(`Failed to sync offline request for ${req.endpoint}:`, err);
+          failedQueue.push(req);
         }
       }
 
       if (failedQueue.length > 0) {
-        await AsyncStorage.setItem('@offline_updates', JSON.stringify(failedQueue));
+        await AsyncStorage.setItem('@offline_queue', JSON.stringify(failedQueue));
         setSyncingCount(failedQueue.length);
-        setIsOnline(false);
       } else {
-        await AsyncStorage.removeItem('@offline_updates');
+        await AsyncStorage.removeItem('@offline_queue');
         setSyncingCount(0);
-        setIsOnline(true);
         console.log('Offline queue sync completed successfully.');
       }
 
@@ -150,21 +169,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [token, fetchTasks]);
 
-  // Update status helper for local & AsyncStorage queueing
-  const queueOfflineUpdate = async (taskId: string, status: TaskStatus) => {
+  const addOfflineRequest = async (endpoint: string, method: 'PATCH' | 'POST', data: any) => {
     try {
-      const queuedStr = await AsyncStorage.getItem('@offline_updates');
-      const queue: Array<{ id: string; status: TaskStatus }> = queuedStr ? JSON.parse(queuedStr) : [];
+      const queuedStr = await AsyncStorage.getItem('@offline_queue');
+      const queue: Array<{ id: string; endpoint: string; method: 'PATCH' | 'POST'; data: any; timestamp: number }> = queuedStr ? JSON.parse(queuedStr) : [];
       
-      // Remove any existing updates for this task in the queue, keep the latest status change
-      const filteredQueue = queue.filter(item => item.id !== taskId);
-      filteredQueue.push({ id: taskId, status });
+      const id = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9);
       
-      await AsyncStorage.setItem('@offline_updates', JSON.stringify(filteredQueue));
+      // Deduplicate task status update requests in the queue
+      let filteredQueue = queue;
+      if (method === 'PATCH' && endpoint.startsWith('/task/')) {
+        filteredQueue = queue.filter(item => !(item.method === 'PATCH' && item.endpoint === endpoint));
+      }
+      
+      filteredQueue.push({
+        id,
+        endpoint,
+        method,
+        data,
+        timestamp: Date.now(),
+      });
+      
+      await AsyncStorage.setItem('@offline_queue', JSON.stringify(filteredQueue));
       setSyncingCount(filteredQueue.length);
-      console.log(`Queued task ${taskId} status update offline: ${status}`);
+      console.log(`Queued offline request to ${endpoint}:`, data);
     } catch (err) {
-      console.warn('Failed to queue offline update:', err);
+      console.warn('Failed to queue offline request:', err);
     }
   };
 
@@ -177,32 +207,97 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const tkn = token;
     if (!tkn) return;
 
-    if (isOnline) {
+    if (backendStatus === 'ONLINE') {
       try {
         await updateTaskStatusApi(taskId, status, tkn);
         console.log(`Successfully updated task ${taskId} online`);
       } catch (err) {
         console.warn(`Online update failed for task ${taskId}, queueing instead`, err);
-        await queueOfflineUpdate(taskId, status);
-        setIsOnline(false);
+        await addOfflineRequest(`/task/${taskId}`, 'PATCH', { status });
+        setBackendStatus('SERVER_DOWN');
       }
     } else {
-      await queueOfflineUpdate(taskId, status);
+      await addOfflineRequest(`/task/${taskId}`, 'PATCH', { status });
     }
   };
+
+  const addRemark = async (taskId: string, remarkText: string) => {
+    const tkn = token;
+    if (!tkn) return;
+
+    if (backendStatus === 'ONLINE') {
+      try {
+        await addRemarkApi(parseInt(taskId, 10), remarkText, tkn);
+        console.log(`Successfully added remark for task ${taskId} online`);
+      } catch (err) {
+        console.warn(`Online remark addition failed for task ${taskId}, queueing instead`, err);
+        await addOfflineRequest(`/task/${taskId}/remarks`, 'POST', { remarkText });
+        setBackendStatus('SERVER_DOWN');
+      }
+    } else {
+      await addOfflineRequest(`/task/${taskId}/remarks`, 'POST', { remarkText });
+    }
+  };
+
+  const checkConnection = useCallback(async () => {
+    const netState = await NetInfo.fetch();
+    const hasInternet = !!netState.isConnected;
+    if (!hasInternet) {
+      setBackendStatus('OFFLINE');
+      setIsOnline(false);
+      return;
+    }
+
+    const isBackendUp = await checkHealthApi();
+    if (isBackendUp) {
+      const wasOfflineOrServerDown = backendStatus !== 'ONLINE';
+      setBackendStatus('ONLINE');
+      setIsOnline(true);
+      if (wasOfflineOrServerDown && token) {
+        syncOfflineQueue(token);
+      }
+    } else {
+      setBackendStatus('SERVER_DOWN');
+      setIsOnline(true);
+    }
+  }, [token, syncOfflineQueue, backendStatus]);
+
+  // Connection check interval (10 seconds)
+  useEffect(() => {
+    checkConnection();
+
+    const interval = setInterval(() => {
+      checkConnection();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [checkConnection]);
 
   // Listen for network state changes
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const online = !!state.isConnected;
-      setIsOnline(online);
-      if (online && token) {
-        syncOfflineQueue(token);
+      const hasInternet = !!state.isConnected;
+      if (!hasInternet) {
+        setBackendStatus('OFFLINE');
+        setIsOnline(false);
+      } else {
+        checkHealthApi().then((isBackendUp) => {
+          if (isBackendUp) {
+            setBackendStatus('ONLINE');
+            setIsOnline(true);
+            if (token) {
+              syncOfflineQueue(token);
+            }
+          } else {
+            setBackendStatus('SERVER_DOWN');
+            setIsOnline(true);
+          }
+        });
       }
     });
 
     // Also check queue size on startup
-    AsyncStorage.getItem('@offline_updates').then((queuedStr) => {
+    AsyncStorage.getItem('@offline_queue').then((queuedStr) => {
       if (queuedStr) {
         const queue = JSON.parse(queuedStr);
         setSyncingCount(queue.length);
@@ -221,7 +316,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const response = await loginApi(username.trim(), password);
 
-      // Check if user has operator role
       const roles = response.roles ?? [];
       const isOperator = roles.some(
         (r) => r.toLowerCase() === 'operator',
@@ -245,9 +339,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setUser(loggedUser);
 
-      // Fetch operator's tasks right after login
       await fetchTasks(response.token);
-      // Attempt to sync offline queue if online
       await syncOfflineQueue(response.token);
 
       return { success: true };
@@ -274,11 +366,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         tasks,
         isLoadingTasks,
         isOnline,
+        backendStatus,
         syncingCount,
         login,
         logout,
         fetchTasks,
         updateTaskStatus,
+        addRemark,
         syncOfflineQueue: () => syncOfflineQueue(),
       }}
     >

@@ -10,7 +10,17 @@ interface CustomHeaderProps {
 }
 
 export function CustomHeader({ showMenu = true, onMenuPress }: CustomHeaderProps) {
-  const { user, logout } = useApp();
+  const { user, logout, backendStatus, syncingCount } = useApp();
+
+  let statusColor = '#4CAF50'; // Green
+  let statusText = 'Online';
+  if (backendStatus === 'OFFLINE') {
+    statusColor = '#F44336'; // Red
+    statusText = 'Offline';
+  } else if (backendStatus === 'SERVER_DOWN') {
+    statusColor = '#FFC107'; // Yellow
+    statusText = 'Server Down';
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -23,7 +33,7 @@ export function CustomHeader({ showMenu = true, onMenuPress }: CustomHeaderProps
             </TouchableOpacity>
           )}
           
-          {/* SMS CMMS Overlapping Logo (Blue L-shape + Red offset square) */}
+          {/* SMS CMMS Overlapping Logo */}
           <View style={styles.logoContainer}>
             <View style={styles.logoGraphic}>
               {/* Blue L-Shape Parts */}
@@ -34,6 +44,15 @@ export function CustomHeader({ showMenu = true, onMenuPress }: CustomHeaderProps
             </View>
             <Text style={styles.logoText}>SMS CMMS</Text>
           </View>
+        </View>
+
+        {/* Center Section: Connection Status Indicator */}
+        <View style={styles.statusPill}>
+          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          <Text style={styles.statusPillText}>{statusText}</Text>
+          {syncingCount > 0 && (
+            <Text style={styles.syncText}> ({syncingCount})</Text>
+          )}
         </View>
 
         {/* Right Section: Only Username & Logout Icon */}
@@ -120,6 +139,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E1E1E',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusPillText: {
+    color: '#E0E0E0',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  syncText: {
+    color: '#FFA726',
+    fontSize: 10,
+    fontWeight: '700',
   },
   rightSection: {
     flexDirection: 'row',

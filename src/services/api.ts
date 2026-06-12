@@ -3,7 +3,7 @@
 
 import { Platform } from 'react-native';
 
-const BASE_URL = Platform.select({
+export const BASE_URL = Platform.select({
   android: 'http://192.168.18.185:5128',
   ios: 'http://localhost:5128',
   default: 'http://localhost:5128',
@@ -159,10 +159,71 @@ export async function forgotPasswordApi(
   if (!res.ok) {
     throw new Error(data?.message ?? 'Reset password failed.');
   }
-
   return {
     success: true,
     message: data?.message ?? 'Password updated successfully.',
   };
+}
+
+export interface TaskRemark {
+  id: number;
+  taskId: number;
+  remarkText: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export async function checkHealthApi(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/health`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function getRemarksApi(
+  taskId: number,
+  token: string,
+): Promise<TaskRemark[]> {
+  const res = await fetch(`${BASE_URL}/task/${taskId}/remarks`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? 'Failed to fetch remarks');
+  }
+
+  return res.json();
+}
+
+export async function addRemarkApi(
+  taskId: number,
+  remarkText: string,
+  token: string,
+): Promise<TaskRemark> {
+  const res = await fetch(`${BASE_URL}/task/${taskId}/remarks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ remarkText }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => null);
+    throw new Error(err?.message ?? 'Failed to add remark');
+  }
+
+  return res.json();
 }
 

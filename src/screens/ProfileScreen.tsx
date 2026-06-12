@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, useWindowDimensions } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { CustomHeader } from '../components/CustomHeader';
 import { CustomIcon } from '../components/CustomIcon';
@@ -21,6 +21,10 @@ export function ProfileScreen() {
   const navigation = useNavigation<NavigationProp>();
   const [sidebarVisible, setSidebarVisible] = useState(false);
 
+  const { width, height } = useWindowDimensions();
+  const isTablet = width >= 768;
+  const isLandscape = width > height;
+
   const handleSidebarNavigation = (screenName: 'Tasks' | 'Profile') => {
     navigation.navigate(screenName);
   };
@@ -31,66 +35,121 @@ export function ProfileScreen() {
   const displayRole = user?.roles?.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ') || 'Operator';
   const displayUsername = user?.username || 'operator';
 
-  return (
-    <View style={styles.container}>
-      <CustomHeader showMenu={true} onMenuPress={() => setSidebarVisible(true)} />
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Navigation back row */}
+  const renderSidebar = () => {
+    return (
+      <View style={styles.sidebarContainer}>
+        {user && (
+          <View style={styles.sidebarProfile}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{user.username[0].toUpperCase()}</Text>
+            </View>
+            <Text style={styles.sidebarUsername}>{user.username}</Text>
+            <Text style={styles.sidebarRole}>{user.roles?.[0] ?? 'Operator'}</Text>
+          </View>
+        )}
+        <View style={styles.sidebarDivider} />
+        
         <TouchableOpacity
-          style={styles.backLink}
+          style={styles.sidebarItem}
           onPress={() => navigation.navigate('Dashboard')}
         >
-          <CustomIcon name="chevron-right" size={16} color={theme.colors.primary} />
-          <Text style={styles.backLinkText}>Back to Dashboard</Text>
+          <CustomIcon name="home" size={18} color={theme.colors.textSecondary} />
+          <Text style={styles.sidebarItemText}>Dashboard</Text>
         </TouchableOpacity>
 
-        {/* Cohesive Centered Card (Matches Login Page Card style) */}
-        <View style={styles.card}>
-          {/* Avatar Icon */}
-          <View style={styles.avatarIconContainer}>
-            <CustomIcon name="profile" size={24} color="#FFFFFF" />
-          </View>
+        <TouchableOpacity
+          style={styles.sidebarItem}
+          onPress={() => navigation.navigate('Tasks')}
+        >
+          <CustomIcon name="tasks" size={18} color={theme.colors.textSecondary} />
+          <Text style={styles.sidebarItemText}>Tasks</Text>
+        </TouchableOpacity>
 
-          <Text style={styles.title}>{displayRole} Profile</Text>
+        <TouchableOpacity
+          style={[styles.sidebarItem, styles.sidebarItemActive]}
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <CustomIcon name="profile" size={18} color={theme.colors.primary} />
+          <Text style={[styles.sidebarItemText, styles.sidebarItemTextActive]}>Profile</Text>
+        </TouchableOpacity>
 
-          {/* Full Name Display */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name</Text>
-            <View style={styles.readOnlyInput}>
-              <Text style={styles.inputText}>{displayName}</Text>
+        <TouchableOpacity
+          style={[styles.sidebarItem, styles.sidebarLogout]}
+          onPress={logout}
+        >
+          <CustomIcon name="logout" size={18} color="#F44336" />
+          <Text style={styles.sidebarLogoutText}>Logout</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <CustomHeader showMenu={!isTablet || !isLandscape} onMenuPress={() => setSidebarVisible(true)} />
+
+      <View style={styles.mainLayout}>
+        {isTablet && isLandscape && renderSidebar()}
+
+        <View style={styles.contentContainer}>
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            {/* Navigation back row */}
+            <TouchableOpacity
+              style={styles.backLink}
+              onPress={() => navigation.navigate('Dashboard')}
+            >
+              <CustomIcon name="chevron-right" size={16} color={theme.colors.primary} />
+              <Text style={styles.backLinkText}>Back to Dashboard</Text>
+            </TouchableOpacity>
+
+            {/* Cohesive Centered Card (Matches Login Page Card style) */}
+            <View style={styles.card}>
+              {/* Avatar Icon */}
+              <View style={styles.avatarIconContainer}>
+                <CustomIcon name="profile" size={24} color="#FFFFFF" />
+              </View>
+
+              <Text style={styles.title}>{displayRole} Profile</Text>
+
+              {/* Full Name Display */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Full Name</Text>
+                <View style={styles.readOnlyInput}>
+                  <Text style={styles.inputText}>{displayName}</Text>
+                </View>
+              </View>
+
+              {/* Username Display */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Username</Text>
+                <View style={styles.readOnlyInput}>
+                  <Text style={styles.inputText}>{displayUsername}</Text>
+                </View>
+              </View>
+
+              {/* Role Display */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Assigned Role</Text>
+                <View style={styles.readOnlyInput}>
+                  <Text style={styles.inputText}>{displayRole}</Text>
+                </View>
+              </View>
+
+              {/* Log Out Button (Matches Login screen button style) */}
+              <TouchableOpacity
+                style={styles.logoutButton}
+                onPress={logout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutButtonText}>LOG OUT</Text>
+              </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Username Display */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Username</Text>
-            <View style={styles.readOnlyInput}>
-              <Text style={styles.inputText}>{displayUsername}</Text>
-            </View>
-          </View>
-
-          {/* Role Display */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Assigned Role</Text>
-            <View style={styles.readOnlyInput}>
-              <Text style={styles.inputText}>{displayRole}</Text>
-            </View>
-          </View>
-
-          {/* Log Out Button (Matches Login screen button style) */}
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={logout}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.logoutButtonText}>LOG OUT</Text>
-          </TouchableOpacity>
+            {/* Copyright Footer */}
+            <Text style={styles.copyrightText}>Copyright © SMS CMMS 2026.</Text>
+          </ScrollView>
         </View>
-
-        {/* Copyright Footer */}
-        <Text style={styles.copyrightText}>Copyright © SMS CMMS 2026.</Text>
-      </ScrollView>
+      </View>
 
       {/* Slide-out Sidebar Drawer Modal */}
       {sidebarVisible && (
@@ -108,6 +167,84 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.bg,
+  },
+  mainLayout: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sidebarContainer: {
+    width: 240,
+    backgroundColor: theme.colors.headerBg,
+    borderRightWidth: 1,
+    borderRightColor: '#222222',
+    paddingVertical: theme.spacing.xl,
+    paddingHorizontal: theme.spacing.md,
+  },
+  sidebarProfile: {
+    alignItems: 'center',
+    marginBottom: theme.spacing.lg,
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  sidebarUsername: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  sidebarRole: {
+    color: theme.colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sidebarDivider: {
+    height: 1,
+    backgroundColor: '#333333',
+    marginVertical: theme.spacing.md,
+  },
+  sidebarItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.borderRadius.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  sidebarItemActive: {
+    backgroundColor: theme.colors.primary + '15',
+  },
+  sidebarItemText: {
+    color: theme.colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: theme.spacing.sm,
+  },
+  sidebarItemTextActive: {
+    color: theme.colors.primary,
+  },
+  sidebarLogout: {
+    marginTop: 'auto',
+  },
+  sidebarLogoutText: {
+    color: '#F44336',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: theme.spacing.sm,
+  },
+  contentContainer: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
